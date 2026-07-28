@@ -5,6 +5,7 @@ import System.Process (readProcess)
 import System.Exit (exitSuccess)
 import Data.Char (isHexDigit, isAlphaNum, toLower)
 import Data.List (intercalate)
+import Data.Maybe (isJust, fromJust, fromMaybe)
 import Data.Aeson (Value(..), Array, object, (.=), decode, encode)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Char8 as BS
@@ -29,24 +30,32 @@ eventLoop = do
                 Just (Array vec) | length vec == 2 -> handleReq vec
                 _ -> eventLoop
     where
+      handleReq :: Array -> IO ()
       handleReq vec = do
         let reqId   = vec !? 0
             payload = vec !? 1
         case (reqId, payload) of
             (Just msgId, Just (Object obj)) -> case KM.lookup "cmd" obj of
                 Just (String "variableToUUIDInit") -> do
-                    let varName = extractVarName (KM.lookup "line" obj)
-                    let style   = extractStyle (KM.lookup "style" obj)
-                    rawUuid <- readProcess "uuidgen" [] ""
-                    let codeLines = formatUUID style varName (trim rawUuid)
+                    let line = KM.lookup "line" obj
+                    let varName = extractVarName line
+                    let uuid = extractUUID line
+                    let style   = extractStyle $ KM.lookup "style" obj
+                    codeLines <-
+                        if isJust uuid then do
+                            pure $ formatUUID style varName $ fromJust uuid
+                        else do
+                            rawUuid <- readProcess "uuidgen" [] ""
+                            pure $ formatUUID style varName $ trim rawUuid
                     let response =
                             Array (fromList
                                     [msgId,
-                                        object ["status" .= ("ok" :: T.Text),
-                                        "lines" .= codeLines]])
+                                        object
+                                            [
+                                              "status" .= ("ok" :: T.Text),
+                                              "lines" .= codeLines]])
                     BSL.putStrLn (encode response)
                     eventLoop
-
                 Just (String "shutdown") -> do
                     let response =
                             Array (fromList
@@ -67,11 +76,23 @@ respondError msgId err = do
                      "message" .= err]])
     BSL.putStrLn (encode response)
 
+safeHeadWord :: [String] -> Maybe String
+safeHeadWord (x : xs) = Just x
+safeHeadWord _ = Nothing
+
+safeSecondWord :: [String] -> Maybe String
+safeSecondWord (_:x:_) = Just x
+safeSecondWord _ = Nothing
+
 extractVarName :: Maybe Value -> String
 extractVarName (Just (String txt)) =
-    let cleaned = filter (\c -> isAlphaNum c || c == '_') (T.unpack txt)
-    in if null cleaned then "uuid_var" else cleaned
+    let firstWord = fromMaybe "uuid_var" $ safeHeadWord $ words $ T.unpack txt
+    in filter (\c -> isAlphaNum c || c == '_') firstWord
 extractVarName _ = "uuid_var"
+
+extractUUID :: Maybe Value -> Maybe String
+extractUUID (Just (String txt)) = safeSecondWord $ words $ T.unpack txt
+extractUUID _ = Nothing
 
 extractStyle :: Maybe Value -> String
 extractStyle (Just (String txt)) = T.unpack txt
