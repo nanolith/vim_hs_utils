@@ -11,7 +11,7 @@ To install these utilities, you can clone this repository into your
 v9\_hs\_uuid2c
 ----------
 
-The `v9\_hs\_uuid2c` utility reads a variable name from the current line and
+The `v9_hs_uuid2c` utility reads a variable name from the current line and
 generates code to initialize this variable with the contents from a call to
 `uuidgen`. It currently supports three code generation styles: raw C arrays,
 RCPR uuid instances in C, and Java UUID initializers.
